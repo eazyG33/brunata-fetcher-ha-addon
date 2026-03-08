@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Test prerelease version on `next`: `0.1.6b8`
+- Test prerelease version on `next`: `0.1.6b9`
 - Change `energy_types` configuration to checkbox-style booleans
 - Enable all three energy types by default (`Heizung`, `Kaltwasser`, `Warmwasser`)
 - Keep backward compatibility for older list/string `energy_types` values
@@ -21,6 +21,8 @@
 - Switch status sensor to `device_class: problem` (`ON` on failed query, `OFF` on success)
 - Treat portal query as successful only when at least one configured energy value
 	exists and `last_update_date` is plausible (`DD.MM.YYYY`)
+- Switch portal query problem icon dynamically:
+	`mdi:check-decagram-outline` when OK, `mdi:alert-decagram-outline` on failure
 
 ## 0.1.4
 

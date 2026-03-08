@@ -73,6 +73,11 @@ _DEVICE_INFO = {
 _OPTIONS_FILE = "/data/options.json"
 _DISCOVERY_NODE = "brunata_fetcher"
 _PORTAL_QUERY_PROBLEM_STATE_TOPIC = "brunata_fetcher/binary_sensor/portal_query_problem/state"
+_PORTAL_QUERY_PROBLEM_DISCOVERY_TOPIC = (
+    "homeassistant/binary_sensor/brunata_fetcher/portal_query_problem/config"
+)
+_PORTAL_QUERY_ICON_OK = "mdi:check-decagram-outline"
+_PORTAL_QUERY_ICON_PROBLEM = "mdi:alert-decagram-outline"
 _LEGACY_PORTAL_QUERY_SUCCESS_DISCOVERY_TOPIC = (
     "homeassistant/binary_sensor/brunata_fetcher/last_portal_query_success/config"
 )
@@ -418,22 +423,7 @@ def _publish_discovery(client: mqtt.Client, energy_types: list[str]) -> None:
     )
     _LOGGER.info("Published discovery config for Naechste Portal-Abfrage")
 
-    _publish_mqtt(
-        client,
-        f"homeassistant/binary_sensor/{_DISCOVERY_NODE}/portal_query_problem/config",
-        json.dumps(
-            {
-                "name": "Portal-Abfrage Problem",
-                "unique_id": "brunata_fetcher_portal_query_problem",
-                "state_topic": _PORTAL_QUERY_PROBLEM_STATE_TOPIC,
-                "device_class": "problem",
-                "payload_on": "ON",
-                "payload_off": "OFF",
-                "icon": "mdi:alert-circle-outline",
-                "device": _DEVICE_INFO,
-            }
-        ),
-    )
+    _publish_portal_query_problem_discovery(client, _PORTAL_QUERY_ICON_OK)
 
     # Remove legacy success-status entity to avoid duplicate/contradicting entities.
     _publish_mqtt(client, _LEGACY_PORTAL_QUERY_SUCCESS_DISCOVERY_TOPIC, "")
@@ -508,6 +498,26 @@ def _publish_portal_query_problem_state(client: mqtt.Client, has_problem: bool) 
     state = "ON" if has_problem else "OFF"
     _publish_mqtt(client, _PORTAL_QUERY_PROBLEM_STATE_TOPIC, state)
     _LOGGER.info("State: portal_query_problem = %s", state)
+
+
+def _publish_portal_query_problem_discovery(client: mqtt.Client, icon: str) -> None:
+    """Publish discovery payload for the portal query problem entity."""
+    _publish_mqtt(
+        client,
+        _PORTAL_QUERY_PROBLEM_DISCOVERY_TOPIC,
+        json.dumps(
+            {
+                "name": "Portal-Abfrage Problem",
+                "unique_id": "brunata_fetcher_portal_query_problem",
+                "state_topic": _PORTAL_QUERY_PROBLEM_STATE_TOPIC,
+                "device_class": "problem",
+                "payload_on": "ON",
+                "payload_off": "OFF",
+                "icon": icon,
+                "device": _DEVICE_INFO,
+            }
+        ),
+    )
 
 
 def _send_failure_notification() -> bool:
@@ -640,6 +650,7 @@ async def main() -> None:
 
     cycle = 0
     failure_notification_sent = False
+    portal_query_problem_icon: str | None = None
     while True:
         cycle += 1
         cycle_start = time.monotonic()
@@ -657,10 +668,20 @@ async def main() -> None:
         if data is not None and is_valid_result:
             _publish_state(mqtt_client, data, energy_types)
             _publish_portal_query_problem_state(mqtt_client, False)
+            if portal_query_problem_icon != _PORTAL_QUERY_ICON_OK:
+                _publish_portal_query_problem_discovery(
+                    mqtt_client, _PORTAL_QUERY_ICON_OK
+                )
+                portal_query_problem_icon = _PORTAL_QUERY_ICON_OK
             failure_notification_sent = False
             _LOGGER.info("Cycle %d scrape complete", cycle)
         else:
             _publish_portal_query_problem_state(mqtt_client, True)
+            if portal_query_problem_icon != _PORTAL_QUERY_ICON_PROBLEM:
+                _publish_portal_query_problem_discovery(
+                    mqtt_client, _PORTAL_QUERY_ICON_PROBLEM
+                )
+                portal_query_problem_icon = _PORTAL_QUERY_ICON_PROBLEM
             if not failure_notification_sent:
                 notification_sent = await asyncio.to_thread(_send_failure_notification)
                 failure_notification_sent = notification_sent
