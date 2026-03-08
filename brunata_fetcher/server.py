@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import sys
+import time
 
 import paho.mqtt.client as mqtt
 
@@ -69,16 +70,21 @@ _OPTIONS_FILE = "/data/options.json"
 
 def _connect_mqtt(host: str, port: int, user: str, password: str) -> mqtt.Client:
     """Connect to MQTT broker and return a started client."""
+    _LOGGER.info(
+        "MQTT connect start: host=%s port=%s user_set=%s", host, port, bool(user)
+    )
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="brunata_fetcher")
     if user:
         client.username_pw_set(user, password)
     client.connect(host, port, keepalive=60)
     client.loop_start()
+    _LOGGER.info("MQTT connect done")
     return client
 
 
 def _publish_discovery(client: mqtt.Client, energy_types: list[str]) -> None:
     """Publish retained MQTT Discovery config messages for all sensors."""
+    _LOGGER.info("Discovery publish start: %d energy types", len(energy_types))
     for energy_type in energy_types:
         cfg = _ENERGY_TYPES.get(energy_type)
         if cfg is None:
@@ -117,10 +123,12 @@ def _publish_discovery(client: mqtt.Client, energy_types: list[str]) -> None:
         retain=True,
     )
     _LOGGER.info("Published discovery config for Letztes Update")
+    _LOGGER.info("Discovery publish done")
 
 
 def _publish_state(client: mqtt.Client, data: dict, energy_types: list[str]) -> None:
     """Publish current sensor states."""
+    _LOGGER.info("State publish start")
     for energy_type in energy_types:
         value = data.get(energy_type)
         if value is None:
@@ -128,6 +136,7 @@ def _publish_state(client: mqtt.Client, data: dict, energy_types: list[str]) -> 
         slug = energy_type.lower().replace(" ", "_")
         client.publish(f"brunata_fetcher/sensor/{slug}/state", str(value), retain=True)
         _LOGGER.info("State: %s = %s", energy_type, value)
+        _LOGGER.debug("State topic published: brunata_fetcher/sensor/%s/state", slug)
 
     last_update = data.get("last_update_date")
     if last_update:
@@ -135,6 +144,7 @@ def _publish_state(client: mqtt.Client, data: dict, energy_types: list[str]) -> 
             "brunata_fetcher/sensor/last_update/state", last_update, retain=True
         )
         _LOGGER.info("State: last_update_date = %s", last_update)
+    _LOGGER.info("State publish done")
 
 
 # --- Scraper -----------------------------------------------------------------
@@ -142,6 +152,8 @@ def _publish_state(client: mqtt.Client, data: dict, energy_types: list[str]) -> 
 
 async def _run_scrape(options: dict) -> dict | None:
     """Build scraper config from add-on options and call the scraper."""
+    start = time.monotonic()
+    _LOGGER.info("Scrape run config build start")
     config = {
         "email": options["email"],
         "password": options["password"],
@@ -159,15 +171,30 @@ async def _run_scrape(options: dict) -> dict | None:
         "headless": True,
         "energy_type_labels": {k: v["label"] for k, v in _ENERGY_TYPES.items()},
     }
+    _LOGGER.info(
+        "Scrape run start: energy_types=%s playwright_timeout_ms=%s",
+        config["energy_types"],
+        config["playwright_timeout"],
+    )
     try:
-        return await scrape(config)
+        result = await scrape(config)
+        duration = time.monotonic() - start
+        _LOGGER.info("Scrape run succeeded in %.2fs", duration)
+        return result
     except RuntimeError as ex:
+        duration = time.monotonic() - start
         if "LOGIN_FAILED" in str(ex):
-            _LOGGER.error("Login failed — check email and password in add-on options")
+            _LOGGER.error(
+                "Login failed after %.2fs — check email and password in add-on options",
+                duration,
+            )
         else:
-            _LOGGER.error("Scraping error: %s", ex)
+            _LOGGER.error("Scraping error after %.2fs: %s", duration, ex)
     except Exception as ex:
-        _LOGGER.exception("Unexpected error during scraping: %s", ex)
+        duration = time.monotonic() - start
+        _LOGGER.exception(
+            "Unexpected error during scraping after %.2fs: %s", duration, ex
+        )
     return None
 
 
@@ -176,8 +203,10 @@ async def _run_scrape(options: dict) -> dict | None:
 
 async def main() -> None:
     """Load options, connect MQTT and run the polling loop."""
-    with open(_OPTIONS_FILE) as fh:
+    _LOGGER.info("Server startup: loading options from %s", _OPTIONS_FILE)
+    with open(_OPTIONS_FILE, encoding="utf-8") as fh:
         options = json.load(fh)
+    _LOGGER.info("Options loaded successfully")
 
     energy_types: list[str] = options["energy_types"]
     scan_interval: int = int(options.get("scan_interval_hours", 24)) * 3600
@@ -197,15 +226,22 @@ async def main() -> None:
 
     _publish_discovery(mqtt_client, energy_types)
 
+    cycle = 0
     while True:
-        _LOGGER.info("Starting scrape...")
+        cycle += 1
+        cycle_start = time.monotonic()
+        _LOGGER.info("Cycle %d starting scrape", cycle)
         data = await _run_scrape(options)
         if data is not None:
             _publish_state(mqtt_client, data, energy_types)
-            _LOGGER.info("Scrape complete")
+            _LOGGER.info("Cycle %d scrape complete", cycle)
         else:
-            _LOGGER.warning("Scrape returned no data — will retry after interval")
+            _LOGGER.warning(
+                "Cycle %d scrape returned no data — will retry after interval", cycle
+            )
 
+        cycle_duration = time.monotonic() - cycle_start
+        _LOGGER.info("Cycle %d finished in %.2fs", cycle, cycle_duration)
         _LOGGER.info("Next scrape in %d seconds", scan_interval)
         await asyncio.sleep(scan_interval)
 

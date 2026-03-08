@@ -14,8 +14,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import sys
+import time
+
+
+_LOGGER = logging.getLogger("brunata_fetcher.scraper")
 
 
 def _parse_german_number(text: str) -> float:
@@ -34,6 +39,9 @@ def _parse_german_number(text: str) -> float:
 async def scrape(config: dict) -> dict:
     from playwright.async_api import async_playwright
 
+    start = time.monotonic()
+    _LOGGER.info("Scraper entry")
+
     email = config["email"]
     password = config["password"]
     energy_types = config["energy_types"]
@@ -49,24 +57,41 @@ async def scrape(config: dict) -> dict:
     pw_timeout = config.get("playwright_timeout", 30000)
     headless = config.get("headless", True)
     energy_type_labels = config.get("energy_type_labels", {})
+    masked_email = f"***{email[-4:]}" if len(email) >= 4 else "***"
+    _LOGGER.info(
+        "Scraper config loaded: user=%s energy_types=%s headless=%s timeout_ms=%s",
+        masked_email,
+        energy_types,
+        headless,
+        pw_timeout,
+    )
 
     async with async_playwright() as pw:
+        _LOGGER.info("Playwright start")
         browser = await pw.chromium.launch(headless=headless)
+        _LOGGER.info("Browser launched")
         context = await browser.new_context()
         page = await context.new_page()
         page.set_default_timeout(pw_timeout)
         try:
+            _LOGGER.info("Open login page")
             await page.goto(login_url, wait_until="networkidle")
+            _LOGGER.info("Login page loaded")
             await page.wait_for_timeout(timeout_before)
             await page.fill(sel_email, email)
             await page.fill(sel_password, password)
+            _LOGGER.info("Credentials filled")
             await page.wait_for_timeout(timeout_before)
             await page.click(sel_login)
+            _LOGGER.info("Login button clicked")
             try:
                 await page.wait_for_load_state("networkidle")
             except Exception:
-                pass
+                _LOGGER.warning(
+                    "wait_for_load_state(networkidle) timed out after login click"
+                )
             await page.wait_for_timeout(500)
+            _LOGGER.info("Post-login wait complete")
 
             # Detect login failure
             page_text = await page.text_content("body") or ""
@@ -76,14 +101,19 @@ async def scrape(config: dict) -> dict:
             ):
                 current_url = page.url
                 if "anmeldung" in current_url or "login" in current_url.lower():
+                    _LOGGER.error("Login failure detected via page text/url")
                     raise RuntimeError("LOGIN_FAILED")
+            _LOGGER.info("No immediate login failure detected")
 
             await page.wait_for_timeout(timeout_after)
+            _LOGGER.info("After-login settle wait complete")
 
             consumption: dict = {"last_update_date": None}
             await page.wait_for_timeout(timeout_clicks)
+            _LOGGER.info("Starting energy type extraction")
 
             for energy_type in energy_types:
+                _LOGGER.info("Energy extraction start: %s", energy_type)
                 label = energy_type_labels.get(energy_type, energy_type)
                 clicked = False
                 for btn_sel in [
@@ -91,17 +121,32 @@ async def scrape(config: dict) -> dict:
                     f'button:has-text("{label}")',
                 ]:
                     try:
+                        _LOGGER.debug(
+                            "Trying selector for %s: %s", energy_type, btn_sel
+                        )
                         await page.click(btn_sel, timeout=5000)
                         clicked = True
+                        _LOGGER.info(
+                            "Selector click success for %s: %s", energy_type, btn_sel
+                        )
                         break
                     except Exception:
+                        _LOGGER.debug(
+                            "Selector click failed for %s: %s",
+                            energy_type,
+                            btn_sel,
+                        )
                         continue
 
                 if not clicked:
+                    _LOGGER.warning(
+                        "No selector matched for energy type: %s", energy_type
+                    )
                     consumption[energy_type] = None
                     continue
 
                 await page.wait_for_timeout(timeout_clicks)
+                _LOGGER.info("Post-click wait complete for %s", energy_type)
 
                 if consumption["last_update_date"] is None:
                     raw_date = await page.text_content(sel_date)
@@ -109,20 +154,35 @@ async def scrape(config: dict) -> dict:
                         candidate = raw_date.strip()
                         if candidate and candidate != "--":
                             consumption["last_update_date"] = candidate
+                            _LOGGER.info("Detected last_update_date=%s", candidate)
 
                 value_text = await page.text_content(sel_value)
                 if not value_text:
+                    _LOGGER.warning("No value text found for %s", energy_type)
                     consumption[energy_type] = None
                     continue
                 try:
                     consumption[energy_type] = _parse_german_number(value_text.strip())
+                    _LOGGER.info(
+                        "Parsed %s value=%s", energy_type, consumption[energy_type]
+                    )
                 except ValueError:
+                    _LOGGER.warning(
+                        "Failed to parse value for %s: %s", energy_type, value_text
+                    )
                     consumption[energy_type] = None
 
+            _LOGGER.info("Energy extraction finished")
+
         finally:
+            _LOGGER.info("Scraper cleanup start")
             await page.close()
             await context.close()
             await browser.close()
+            _LOGGER.info("Scraper cleanup done")
+
+    duration = time.monotonic() - start
+    _LOGGER.info("Scraper exit success in %.2fs", duration)
 
     return consumption
 
@@ -131,6 +191,7 @@ def main() -> None:
     try:
         config = json.loads(sys.stdin.read())
     except Exception as ex:
+        _LOGGER.exception("Config decode failed")
         print(json.dumps({"status": "error", "type": "config", "message": str(ex)}))
         sys.exit(1)
 
@@ -139,15 +200,24 @@ def main() -> None:
         print(json.dumps({"status": "ok", "data": result}))
     except RuntimeError as ex:
         if "LOGIN_FAILED" in str(ex):
-            print(json.dumps({
-                "status": "error",
-                "type": "login",
-                "message": "Login failed: invalid credentials",
-            }))
+            _LOGGER.error("Scraper runtime login error")
+            print(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "type": "login",
+                        "message": "Login failed: invalid credentials",
+                    }
+                )
+            )
         else:
-            print(json.dumps({"status": "error", "type": "scraping", "message": str(ex)}))
+            _LOGGER.exception("Scraper runtime error")
+            print(
+                json.dumps({"status": "error", "type": "scraping", "message": str(ex)})
+            )
         sys.exit(1)
     except Exception as ex:
+        _LOGGER.exception("Unhandled scraper exception")
         print(json.dumps({"status": "error", "type": "scraping", "message": str(ex)}))
         sys.exit(1)
 
