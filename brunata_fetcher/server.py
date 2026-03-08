@@ -26,7 +26,7 @@ _LOGGER = logging.getLogger("brunata_fetcher")
 
 # --- Brunata portal constants ------------------------------------------------
 
-_BRUNATA_LOGIN_URL = (
+_DEFAULT_BRUNATA_LOGIN_URL = (
     "https://nutzerportal.brunata-muenchen.de/np_anmeldung/index.html?sap-language=DE"
 )
 _SELECTOR_EMAIL = "#__component0---Start--idEmailInput-inner"
@@ -118,6 +118,30 @@ def _publish_mqtt(
 def _discovery_topic(object_id: str) -> str:
     """Build grouped MQTT discovery topic for this add-on."""
     return f"homeassistant/sensor/{_DISCOVERY_NODE}/{object_id}/config"
+
+
+def _extract_advanced_options(options: dict) -> dict:
+    """Extract advanced options with fallback defaults and legacy compatibility."""
+    advanced = options.get("advanced")
+    if not isinstance(advanced, dict):
+        advanced = {}
+
+    # Keep compatibility with older flat option keys if they still exist.
+    mqtt_host = (
+        advanced.get("mqtt_host") or options.get("mqtt_host") or "core-mosquitto"
+    )
+    mqtt_port = int(advanced.get("mqtt_port") or options.get("mqtt_port") or 1883)
+    mqtt_user = advanced.get("mqtt_user") or options.get("mqtt_user") or ""
+    mqtt_password = advanced.get("mqtt_password") or options.get("mqtt_password") or ""
+    scraper_url = advanced.get("scraper_url") or _DEFAULT_BRUNATA_LOGIN_URL
+
+    return {
+        "mqtt_host": mqtt_host,
+        "mqtt_port": mqtt_port,
+        "mqtt_user": mqtt_user,
+        "mqtt_password": mqtt_password,
+        "scraper_url": scraper_url,
+    }
 
 
 def _normalize_energy_types(
@@ -273,7 +297,7 @@ def _publish_schedule_state(
 # --- Scraper -----------------------------------------------------------------
 
 
-async def _run_scrape(options: dict) -> dict | None:
+async def _run_scrape(options: dict, scraper_url: str) -> dict | None:
     """Build scraper config from add-on options and call the scraper."""
     start = time.monotonic()
     _LOGGER.info("Scrape run config build start")
@@ -281,7 +305,7 @@ async def _run_scrape(options: dict) -> dict | None:
         "email": options["email"],
         "password": options["password"],
         "energy_types": _normalize_energy_types(options.get("energy_types")),
-        "login_url": _BRUNATA_LOGIN_URL,
+        "login_url": scraper_url,
         "selector_email": _SELECTOR_EMAIL,
         "selector_password": _SELECTOR_PASSWORD,
         "selector_login_button": _SELECTOR_LOGIN_BUTTON,
@@ -333,6 +357,7 @@ async def main() -> None:
 
     energy_types: list[str] = _normalize_energy_types(options.get("energy_types"))
     scan_interval: int = int(options.get("scan_interval_hours", 24)) * 3600
+    advanced = _extract_advanced_options(options)
 
     _LOGGER.info(
         "Starting — energy_types=%s, interval=%dh",
@@ -341,10 +366,10 @@ async def main() -> None:
     )
 
     mqtt_client = _connect_mqtt(
-        options["mqtt_host"],
-        int(options["mqtt_port"]),
-        options.get("mqtt_user", ""),
-        options.get("mqtt_password", ""),
+        advanced["mqtt_host"],
+        int(advanced["mqtt_port"]),
+        advanced["mqtt_user"],
+        advanced["mqtt_password"],
     )
 
     _publish_discovery(mqtt_client, energy_types)
@@ -356,7 +381,7 @@ async def main() -> None:
         cycle_start = time.monotonic()
         run_started_at = datetime.now(UTC)
         _LOGGER.info("Cycle %d starting scrape", cycle)
-        data = await _run_scrape(options)
+        data = await _run_scrape(options, advanced["scraper_url"])
         if data is not None:
             _publish_state(mqtt_client, data, energy_types)
             _LOGGER.info("Cycle %d scrape complete", cycle)

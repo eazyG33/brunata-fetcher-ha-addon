@@ -5,6 +5,9 @@
 - Change `energy_types` configuration to checkbox-style booleans
 - Enable all three energy types by default (`Heizung`, `Kaltwasser`, `Warmwasser`)
 - Keep backward compatibility for older list/string `energy_types` values
+- Move MQTT settings to nested `advanced` options section
+- Add configurable `scraper_url` in `advanced` options section
+- Add fallback handling for legacy flat MQTT options
 
 ## 0.1.4
 
