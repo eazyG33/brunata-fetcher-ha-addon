@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Test prerelease version on `next`: `0.1.6b1`
 - Change `energy_types` configuration to checkbox-style booleans
 - Enable all three energy types by default (`Heizung`, `Kaltwasser`, `Warmwasser`)
 - Keep backward compatibility for older list/string `energy_types` values
