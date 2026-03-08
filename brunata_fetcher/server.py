@@ -69,9 +69,7 @@ _OPTIONS_FILE = "/data/options.json"
 
 def _connect_mqtt(host: str, port: int, user: str, password: str) -> mqtt.Client:
     """Connect to MQTT broker and return a started client."""
-    client = mqtt.Client(
-        mqtt.CallbackAPIVersion.VERSION2, client_id="brunata_fetcher"
-    )
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="brunata_fetcher")
     if user:
         client.username_pw_set(user, password)
     client.connect(host, port, keepalive=60)
@@ -107,30 +105,28 @@ def _publish_discovery(client: mqtt.Client, energy_types: list[str]) -> None:
     # Extra sensor: date of last portal update
     client.publish(
         "homeassistant/sensor/brunata_fetcher_last_update/config",
-        json.dumps({
-            "name": "Letztes Update",
-            "unique_id": "brunata_fetcher_last_update",
-            "state_topic": "brunata_fetcher/sensor/last_update/state",
-            "icon": "mdi:calendar-check",
-            "device": _DEVICE_INFO,
-        }),
+        json.dumps(
+            {
+                "name": "Letztes Update",
+                "unique_id": "brunata_fetcher_last_update",
+                "state_topic": "brunata_fetcher/sensor/last_update/state",
+                "icon": "mdi:calendar-check",
+                "device": _DEVICE_INFO,
+            }
+        ),
         retain=True,
     )
     _LOGGER.info("Published discovery config for Letztes Update")
 
 
-def _publish_state(
-    client: mqtt.Client, data: dict, energy_types: list[str]
-) -> None:
+def _publish_state(client: mqtt.Client, data: dict, energy_types: list[str]) -> None:
     """Publish current sensor states."""
     for energy_type in energy_types:
         value = data.get(energy_type)
         if value is None:
             continue
         slug = energy_type.lower().replace(" ", "_")
-        client.publish(
-            f"brunata_fetcher/sensor/{slug}/state", str(value), retain=True
-        )
+        client.publish(f"brunata_fetcher/sensor/{slug}/state", str(value), retain=True)
         _LOGGER.info("State: %s = %s", energy_type, value)
 
     last_update = data.get("last_update_date")
