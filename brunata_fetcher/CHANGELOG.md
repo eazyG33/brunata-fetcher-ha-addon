@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Test prerelease version on `next`: `0.1.6b3`
+- Test prerelease version on `next`: `0.1.6b4`
 - Change `energy_types` configuration to checkbox-style booleans
 - Enable all three energy types by default (`Heizung`, `Kaltwasser`, `Warmwasser`)
 - Keep backward compatibility for older list/string `energy_types` values
@@ -14,6 +14,7 @@
 - Fix add-on options validation: keep `advanced.mqtt_port` as a valid port value
 - Wait for MQTT CONNACK before first publish to avoid startup race crashes
 - Guard publish path when MQTT client is disconnected
+- Start via `/usr/bin/with-contenv bashio` so `SUPERVISOR_TOKEN` is available at runtime
 
 ## 0.1.4
 
