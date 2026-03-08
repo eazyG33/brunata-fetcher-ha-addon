@@ -72,6 +72,10 @@ _DEVICE_INFO = {
 
 _OPTIONS_FILE = "/data/options.json"
 _DISCOVERY_NODE = "brunata_fetcher"
+_PORTAL_QUERY_SUCCESS_STATE_TOPIC = (
+    "brunata_fetcher/binary_sensor/last_portal_query_success/state"
+)
+_PERSISTENT_NOTIFICATION_ID = "brunata_fetcher_portal_query_failed"
 
 
 # --- MQTT helpers ------------------------------------------------------------
@@ -183,9 +187,31 @@ def _extract_advanced_options(options: dict) -> dict:
     }
 
 
+def _get_supervisor_token() -> str | None:
+    """Return supervisor token from environment or s6 container env files."""
+    token = os.environ.get("SUPERVISOR_TOKEN") or os.environ.get("HASSIO_TOKEN")
+    if token:
+        return token
+
+    for token_file in (
+        "/run/s6/container_environment/SUPERVISOR_TOKEN",
+        "/run/s6/container_environment/HASSIO_TOKEN",
+    ):
+        try:
+            with open(token_file, encoding="utf-8") as file_handle:
+                token = file_handle.read().strip()
+        except OSError:
+            continue
+        if token:
+            _LOGGER.info("Loaded supervisor token from container environment file")
+            return token
+
+    return None
+
+
 def _fetch_supervisor_mqtt_service() -> dict | None:
     """Fetch MQTT service details from Supervisor API if available."""
-    token = os.environ.get("SUPERVISOR_TOKEN") or os.environ.get("HASSIO_TOKEN")
+    token = _get_supervisor_token()
     if not token:
         _LOGGER.info("Supervisor token not available; skipping MQTT service discovery")
         return None
@@ -387,6 +413,23 @@ def _publish_discovery(client: mqtt.Client, energy_types: list[str]) -> None:
         ),
     )
     _LOGGER.info("Published discovery config for Naechste Portal-Abfrage")
+
+    _publish_mqtt(
+        client,
+        f"homeassistant/binary_sensor/{_DISCOVERY_NODE}/last_portal_query_success/config",
+        json.dumps(
+            {
+                "name": "Letzte Portal-Abfrage erfolgreich",
+                "unique_id": "brunata_fetcher_last_portal_query_success",
+                "state_topic": _PORTAL_QUERY_SUCCESS_STATE_TOPIC,
+                "payload_on": "ON",
+                "payload_off": "OFF",
+                "icon": "mdi:check-decagram",
+                "device": _DEVICE_INFO,
+            }
+        ),
+    )
+    _LOGGER.info("Published discovery config for Portal-Abfrage erfolgreich")
     _LOGGER.info("Discovery publish done")
 
 
@@ -420,6 +463,59 @@ def _publish_schedule_state(
     _publish_mqtt(client, "brunata_fetcher/sensor/next_portal_query/state", next_iso)
     _LOGGER.info("State: last_portal_query = %s", last_iso)
     _LOGGER.info("State: next_portal_query = %s", next_iso)
+
+
+def _publish_last_query_success_state(client: mqtt.Client, successful: bool) -> None:
+    """Publish the success status of the latest portal query."""
+    state = "ON" if successful else "OFF"
+    _publish_mqtt(client, _PORTAL_QUERY_SUCCESS_STATE_TOPIC, state)
+    _LOGGER.info("State: last_portal_query_success = %s", state)
+
+
+def _send_failure_notification() -> bool:
+    """Send persistent notification in Home Assistant when portal query fails."""
+    token = _get_supervisor_token()
+    if not token:
+        _LOGGER.warning("Cannot send notification: supervisor token unavailable")
+        return False
+
+    payload = {
+        "title": "Brunata Fetcher",
+        "message": (
+            "Die letzte Portal-Abfrage war nicht erfolgreich. "
+            "Bitte pruefe die Add-on-Logs."
+        ),
+        "notification_id": _PERSISTENT_NOTIFICATION_ID,
+    }
+
+    request = urlrequest.Request(
+        "http://supervisor/core/api/services/persistent_notification/create",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlrequest.urlopen(request, timeout=10) as response:
+            response.read()
+    except urlerror.HTTPError as ex:
+        body = ""
+        try:
+            body = ex.read().decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            body = "<unavailable>"
+        _LOGGER.warning(
+            "Failed to send persistent notification (HTTP %s): %s", ex.code, body
+        )
+        return False
+    except (urlerror.URLError, TimeoutError) as ex:
+        _LOGGER.warning("Failed to send persistent notification: %s", ex)
+        return False
+
+    _LOGGER.info("Sent persistent notification for failed portal query")
+    return True
 
 
 # --- Scraper -----------------------------------------------------------------
@@ -505,6 +601,7 @@ async def main() -> None:
     _clear_removed_energy_type_entities(mqtt_client, energy_types)
 
     cycle = 0
+    failure_notification_sent = False
     while True:
         cycle += 1
         cycle_start = time.monotonic()
@@ -513,8 +610,14 @@ async def main() -> None:
         data = await _run_scrape(options, advanced["scraper_url"])
         if data is not None:
             _publish_state(mqtt_client, data, energy_types)
+            _publish_last_query_success_state(mqtt_client, True)
+            failure_notification_sent = False
             _LOGGER.info("Cycle %d scrape complete", cycle)
         else:
+            _publish_last_query_success_state(mqtt_client, False)
+            if not failure_notification_sent:
+                notification_sent = await asyncio.to_thread(_send_failure_notification)
+                failure_notification_sent = notification_sent
             _LOGGER.warning(
                 "Cycle %d scrape returned no data — will retry after interval", cycle
             )

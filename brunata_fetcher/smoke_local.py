@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 from _brunata_scraper import _parse_german_number
 from server import (
     _clear_removed_energy_type_entities,
+    _publish_last_query_success_state,
     _publish_discovery,
     _publish_schedule_state,
     _publish_state,
@@ -85,6 +86,7 @@ def _assert_discovery_and_state() -> None:
         datetime(2026, 3, 1, 10, 0, tzinfo=UTC),
         datetime(2026, 3, 2, 10, 0, tzinfo=UTC) + timedelta(minutes=1),
     )
+    _publish_last_query_success_state(client, False)
 
     topics = [topic for topic, _, _ in client.published]
     expected_topics = {
@@ -94,12 +96,14 @@ def _assert_discovery_and_state() -> None:
         "homeassistant/sensor/brunata_fetcher/last_update/config",
         "homeassistant/sensor/brunata_fetcher/last_portal_query/config",
         "homeassistant/sensor/brunata_fetcher/next_portal_query/config",
+        "homeassistant/binary_sensor/brunata_fetcher/last_portal_query_success/config",
         "brunata_fetcher/sensor/heizung/state",
         "brunata_fetcher/sensor/kaltwasser/state",
         "brunata_fetcher/sensor/warmwasser/state",
         "brunata_fetcher/sensor/last_update/state",
         "brunata_fetcher/sensor/last_portal_query/state",
         "brunata_fetcher/sensor/next_portal_query/state",
+        "brunata_fetcher/binary_sensor/last_portal_query_success/state",
     }
 
     missing = expected_topics - set(topics)
