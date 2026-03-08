@@ -120,10 +120,23 @@ def _discovery_topic(object_id: str) -> str:
     return f"homeassistant/sensor/{_DISCOVERY_NODE}/{object_id}/config"
 
 
-def _normalize_energy_types(configured: list[str] | str | None) -> list[str]:
+def _normalize_energy_types(
+    configured: dict[str, bool] | list[str] | str | None,
+) -> list[str]:
     """Return known energy types in canonical order without duplicates."""
     if configured is None:
         configured = []
+
+    if isinstance(configured, dict):
+        normalized = [
+            energy_type
+            for energy_type in _ENERGY_TYPES
+            if bool(configured.get(energy_type, False))
+        ]
+        if not normalized:
+            return list(_ENERGY_TYPES)
+        return normalized
+
     if isinstance(configured, str):
         configured = [configured]
 
