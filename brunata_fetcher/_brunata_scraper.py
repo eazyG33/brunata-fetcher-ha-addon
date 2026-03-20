@@ -66,6 +66,18 @@ async def scrape(config: dict) -> dict:
         pw_timeout,
     )
 
+    # Delete Playwright browser user data directory for a clean session
+    import shutil
+    from pathlib import Path
+
+    user_data_dir = Path("/tmp/playwright_user_data")
+    if user_data_dir.exists():
+        try:
+            shutil.rmtree(user_data_dir)
+            _LOGGER.info("Deleted browser user data directory: %s", user_data_dir)
+        except Exception as ex:
+            _LOGGER.warning("Failed to delete browser user data directory: %s", ex)
+
     async with async_playwright() as pw:
         _LOGGER.info("Playwright start")
         browser = await pw.chromium.launch(headless=headless)

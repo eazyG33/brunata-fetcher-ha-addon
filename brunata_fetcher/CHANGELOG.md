@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added local one-shot scraper runner (`run_scraper_once.py`) for development outside Home Assistant add-on runtime
+- Added `.env.example` template for local credential-based scraper testing
+
 ## 0.2.0
 
 - Added Supervisor MQTT service discovery with fallback to manual/default settings
