@@ -2,8 +2,11 @@
 
 ## Unreleased
 
+## 0.2.1b1
+
 - Added local one-shot scraper runner (`run_scraper_once.py`) for development outside Home Assistant add-on runtime
 - Added `.env.example` template for local credential-based scraper testing
+- launch modifications args=["--no-sandbox", "--disable-dev-shm-usage"]
 
 ## 0.2.0
 

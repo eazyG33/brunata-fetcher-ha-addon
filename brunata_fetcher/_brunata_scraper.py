@@ -80,7 +80,10 @@ async def scrape(config: dict) -> dict:
 
     async with async_playwright() as pw:
         _LOGGER.info("Playwright start")
-        browser = await pw.chromium.launch(headless=headless)
+        # browser = await pw.chromium.launch(headless=headless)
+        browser = await pw.chromium.launch(
+            headless=headless, args=["--no-sandbox", "--disable-dev-shm-usage"]
+        )
         _LOGGER.info("Browser launched")
         context = await browser.new_context()
         page = await context.new_page()
