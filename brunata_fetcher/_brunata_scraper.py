@@ -90,7 +90,7 @@ async def scrape(config: dict) -> dict:
         page.set_default_timeout(pw_timeout)
         try:
             _LOGGER.info("Open login page")
-            await page.goto(login_url, wait_until="networkidle")
+            await page.goto(login_url, wait_until="domcontentloaded")
             _LOGGER.info("Login page loaded")
             await page.wait_for_timeout(timeout_before)
             await page.fill(sel_email, email)
@@ -100,7 +100,7 @@ async def scrape(config: dict) -> dict:
             await page.click(sel_login)
             _LOGGER.info("Login button clicked")
             try:
-                await page.wait_for_load_state("networkidle")
+                await page.wait_for_load_state("domcontentloaded")
             except Exception:
                 _LOGGER.warning(
                     "wait_for_load_state(networkidle) timed out after login click"
