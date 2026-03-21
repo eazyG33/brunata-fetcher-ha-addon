@@ -52,8 +52,8 @@ async def scrape(config: dict) -> dict:
     sel_date = config["selector_date"]
     sel_value = config["selector_value"]
     timeout_before = config.get("timeout_before_login", 1000)
-    timeout_after = config.get("timeout_after_login", 2000)
-    timeout_clicks = config.get("timeout_between_clicks", 2000)
+    timeout_after = config.get("timeout_after_login", 5000)
+    timeout_clicks = config.get("timeout_between_clicks", 5000)
     pw_timeout = config.get("playwright_timeout", 30000)
     headless = config.get("headless", True)
     energy_type_labels = config.get("energy_type_labels", {})
@@ -135,10 +135,11 @@ async def scrape(config: dict) -> dict:
             except Exception as ex:
                 _LOGGER.warning("Failed to write portal_debug1.html: %s", ex)
 
+            # Warte auf Email-Feld sichtbar
             await page.wait_for_selector(sel_email, timeout=30000)
             _LOGGER.info("Login page loaded and email selector found")
 
-            # Dump HTML and screenshot for debugging
+            # Dump HTML und Screenshot für Debugging
             try:
                 html = await page.content()
                 with open("/tmp/portal_debug2.html", "w", encoding="utf-8") as f:
@@ -152,14 +153,22 @@ async def scrape(config: dict) -> dict:
                     "Failed to write portal_debug2.html or screenshot: %s", ex
                 )
 
+            # Email-Feld
+            await page.wait_for_selector(sel_email, timeout=30000)
             await page.wait_for_timeout(timeout_before)
             await page.fill(sel_email, email)
+
+            # Passwort-Feld
+            await page.wait_for_selector(sel_password, timeout=30000)
+            await page.wait_for_timeout(timeout_before)
             await page.fill(sel_password, password)
 
             _LOGGER.info("Credentials filled")
             await page.screenshot(path="/tmp/portal_debug3.png")
             _LOGGER.info("Wrote portal_debug3.png for troubleshooting")
 
+            # Login-Button
+            await page.wait_for_selector(sel_login, timeout=30000)
             await page.wait_for_timeout(timeout_before)
             await page.click(sel_login)
             _LOGGER.info("Login button clicked")
@@ -209,6 +218,8 @@ async def scrape(config: dict) -> dict:
                         _LOGGER.debug(
                             "Trying selector for %s: %s", energy_type, btn_sel
                         )
+                        await page.wait_for_selector(btn_sel, timeout=30000)
+                        await page.wait_for_timeout(timeout_clicks)
                         await page.click(btn_sel, timeout=5000)
                         clicked = True
                         _LOGGER.info(
@@ -217,9 +228,7 @@ async def scrape(config: dict) -> dict:
                         break
                     except Exception:
                         _LOGGER.debug(
-                            "Selector click failed for %s: %s",
-                            energy_type,
-                            btn_sel,
+                            "Selector click failed for %s: %s", energy_type, btn_sel
                         )
                         continue
 
@@ -230,6 +239,7 @@ async def scrape(config: dict) -> dict:
                     consumption[energy_type] = None
                     continue
 
+                await page.wait_for_selector(sel_date, timeout=30000)
                 await page.wait_for_timeout(timeout_clicks)
                 _LOGGER.info("Post-click wait complete for %s", energy_type)
 
@@ -241,6 +251,7 @@ async def scrape(config: dict) -> dict:
                             consumption["last_update_date"] = candidate
                             _LOGGER.info("Detected last_update_date=%s", candidate)
 
+                await page.wait_for_selector(sel_value, timeout=30000)
                 value_text = await page.text_content(sel_value)
                 if not value_text:
                     _LOGGER.warning("No value text found for %s", energy_type)
