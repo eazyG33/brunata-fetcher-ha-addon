@@ -121,3 +121,5 @@ Important compatibility note:
 - Session handover and archived context:
   - `docs/SESSION_HANDOVER.md`
   - `docs/MEMORIES_ARCHIVE.md`
+- local one-shot scraper runner for development outside Home Assistant add-on runtime (`python3 run_scraper_once.py --env-file .env`)
+- `.env.example` template for local credential-based scraper testing

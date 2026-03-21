@@ -1,15 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.1
 
-## 0.2.1b9
-
-- Added local one-shot scraper runner (`run_scraper_once.py`) for development outside Home Assistant add-on runtime
-- Added `.env.example` template for local credential-based scraper testing
-- launch modifications args=["--no-sandbox", "--disable-dev-shm-usage"]
-- "domcontentloaded" instead of "networkidle"
-- Dump HTML after login page load to `/tmp/portal_debug.html` for troubleshooting selector/timeouts
-- Debug Screenshots
+- Hardened failure detection and scraping sequence
 
 ## 0.2.0
 
