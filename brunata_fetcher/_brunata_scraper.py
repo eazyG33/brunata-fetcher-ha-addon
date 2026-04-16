@@ -211,8 +211,8 @@ async def scrape(config: dict) -> dict:
                 label = energy_type_labels.get(energy_type, energy_type)
                 clicked = False
                 for btn_sel in [
-                    f'button:has-text("{energy_type}")',
-                    f'button:has-text("{label}")',
+                    f'span.sapMBtnInner:has-text("{energy_type}")',
+                    f'span.sapMBtnInner:has-text("{label}")',
                 ]:
                     try:
                         _LOGGER.debug(
